@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Signal AFK</title>
+<style>
+  :root{--bg:#0d0f14;--card:#161a22;--card2:#1d222c;--txt:#e7eaf0;--dim:#8b93a3;--on:#37d67a;--off:#e05555;--warn:#e0a337;--conn:#4a9de0;--accent:#8b5cf6;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;-webkit-text-size-adjust:100%}
+  header{position:sticky;top:0;background:linear-gradient(180deg,#0d0f14,#0d0f14ee);padding:16px 16px 10px;border-bottom:1px solid #ffffff10;backdrop-filter:blur(6px)}
+  h1{margin:0;font-size:18px;letter-spacing:.5px}
+  .sub{color:var(--dim);font-size:12px;margin-top:2px}
+  .wrap{padding:12px;display:grid;gap:12px;grid-template-columns:1fr;max-width:720px;margin:0 auto}
+  @media(min-width:560px){.wrap{grid-template-columns:1fr 1fr}}
+  .card{background:var(--card);border:1px solid #ffffff0d;border-radius:14px;padding:14px}
+  .row{display:flex;align-items:center;gap:10px}
+  .dot{width:11px;height:11px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 8px currentColor}
+  .name{font-weight:650;font-size:16px}
+  .st{margin-left:auto;font-size:12px;text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+  .grid{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0 6px;font-size:13px}
+  .k{color:var(--dim)}
+  .bars{display:flex;gap:8px;margin:8px 0}
+  .bar{flex:1;height:8px;border-radius:6px;background:#ffffff12;overflow:hidden}
+  .bar > i{display:block;height:100%;border-radius:6px}
+  .hp > i{background:var(--off)} .fd > i{background:var(--warn)}
+  .chat{color:var(--dim);font-size:12px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .err{color:var(--off);font-size:12px;margin-top:6px;word-break:break-word}
+  .btns{display:flex;gap:8px;margin-top:12px}
+  button{flex:1;background:var(--card2);color:var(--txt);border:1px solid #ffffff12;border-radius:9px;padding:9px;font-size:13px;font-weight:600}
+  button:active{transform:scale(.97)}
+  button.stop{color:var(--off)}
+  .gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:24px;z-index:9}
+  .gate input{background:var(--card);border:1px solid #ffffff18;color:var(--txt);border-radius:10px;padding:12px 14px;font-size:16px;width:min(320px,90vw)}
+  .gate button{width:min(320px,90vw);background:var(--accent);border:none;padding:12px}
+  .miss{color:var(--dim);text-align:center;padding:30px;grid-column:1/-1}
+</style>
+</head>
+<body>
+<div class="gate" id="gate">
+  <h1>Signal AFK</h1>
+  <input id="pw" type="password" placeholder="Dashboard password" autocomplete="current-password">
+  <button onclick="connect()">Connect</button>
+  <div id="gateErr" class="sub" style="color:var(--off)"></div>
+</div>
+
+<header>
+  <h1>Signal AFK</h1>
+  <div class="sub" id="summary">connecting…</div>
+</header>
+<div class="wrap" id="wrap"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+let socket;
+const cards = {};
+function statusColor(s){return {online:'var(--on)',connecting:'var(--conn)',offline:'var(--off)',kicked:'var(--warn)',error:'var(--off)',stopped:'var(--dim)'}[s]||'var(--dim)';}
+function fmtUptime(s){if(!s)return '—';const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}h ${m}m`:`${m}m`;}
+
+function connect(){
+  const password = document.getElementById('pw').value || localStorage.getItem('afkpw') || '';
+  socket = io({auth:{password}});
+  socket.on('connect', ()=>{ localStorage.setItem('afkpw',password); document.getElementById('gate').style.display='none'; });
+  socket.on('connect_error', (e)=>{ document.getElementById('gateErr').textContent = /unauth/i.test(e.message)?'Wrong password':e.message; localStorage.removeItem('afkpw'); document.getElementById('gate').style.display='flex'; });
+  socket.on('states', (all)=>{ Object.values(all).forEach(render); updateSummary(all); });
+  socket.on('state', (s)=>{ render(s); });
+}
+
+function render(s){
+  let el = cards[s.username];
+  if(!el){
+    el = document.createElement('div'); el.className='card'; cards[s.username]=el;
+    document.getElementById('wrap').appendChild(el);
+  }
+  el.innerHTML = `
+    <div class="row">
+      <span class="dot" style="color:${statusColor(s.status)}"></span>
+      <span class="name">${s.label||s.username}</span>
+      <span class="st" style="color:${statusColor(s.status)}">${s.status}</span>
+    </div>
+    <div class="bars">
+      <div class="bar hp"><i style="width:${(s.health||0)/20*100}%"></i></div>
+      <div class="bar fd"><i style="width:${(s.food||0)/20*100}%"></i></div>
+    </div>
+    <div class="grid">
+      <span class="k">Uptime</span><span>${fmtUptime(s.uptime)}</span>
+      <span class="k">Position</span><span>${s.pos?`${s.pos.x}, ${s.pos.y}, ${s.pos.z}`:'—'}</span>
+      <span class="k">Reconnects</span><span>${s.reconnects||0}</span>
+    </div>
+    ${s.lastChat?`<div class="chat">💬 ${s.lastChat.replace(/</g,'&lt;')}</div>`:''}
+    ${s.error?`<div class="err">⚠ ${String(s.error).replace(/</g,'&lt;')}</div>`:''}
+    <div class="btns">
+      <button onclick="socket.emit('reconnectBot','${s.username}')">Reconnect</button>
+      <button class="stop" onclick="socket.emit('stopBot','${s.username}')">Stop</button>
+    </div>`;
+  const allStates = Object.values(cards).length;
+  updateSummary();
+}
+
+function updateSummary(all){
+  const list = all ? Object.values(all) : null;
+  const nodes = document.querySelectorAll('.st');
+  let online=0,total=0;
+  nodes.forEach(n=>{ total++; if(n.textContent==='online')online++; });
+  document.getElementById('summary').textContent = `${online}/${total} online`;
+}
+
+// auto-connect if password remembered
+if(localStorage.getItem('afkpw')){ document.getElementById('pw').value=localStorage.getItem('afkpw'); connect(); }
+</script>
+</body>
+</html>

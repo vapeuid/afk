@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -e
+echo "==================================="
+echo "   Signal AFK — VPS setup"
+echo "==================================="
+
+# --- Node 20 (if missing or too old) ---
+NEED_NODE=1
+if command -v node >/dev/null 2>&1; then
+  MAJ=$(node -v | sed 's/v//' | cut -d. -f1)
+  [ "$MAJ" -ge 18 ] && NEED_NODE=0
+fi
+if [ "$NEED_NODE" = "1" ]; then
+  echo "-> Installing Node 20..."
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt-get install -y nodejs
+fi
+
+echo "-> Installing git / ufw..."
+sudo apt-get install -y git ufw >/dev/null 2>&1 || true
+
+echo "-> Installing project dependencies (this can take a minute)..."
+npm install
+
+if [ ! -f config.json ]; then
+  cp config.example.json config.json
+  echo "-> Created config.json from the template."
+fi
+
+echo "-> Installing pm2 (keeps bots running 24/7)..."
+sudo npm install -g pm2 >/dev/null 2>&1 || npm install -g pm2
+
+PORT=$(grep -o '"dashboardPort"[^,]*' config.json | grep -o '[0-9]\+' | head -1); PORT=${PORT:-3000}
+echo "-> Opening firewall for SSH + dashboard port ${PORT}..."
+sudo ufw allow OpenSSH >/dev/null 2>&1 || true
+sudo ufw allow ${PORT}/tcp >/dev/null 2>&1 || true
+sudo ufw --force enable >/dev/null 2>&1 || true
+
+IP=$(curl -s ifconfig.me 2>/dev/null || echo "<your-vps-ip>")
+echo ""
+echo "==================================="
+echo "   SETUP COMPLETE"
+echo "==================================="
+echo "Next steps (run these in order):"
+echo ""
+echo "1) Edit your config:"
+echo "     nano config.json"
+echo "     -> set host, port, version, dashboardPassword, and your accounts"
+echo ""
+echo "2) Log in each Microsoft account (one-time):"
+echo "     node src/index.js"
+echo "     -> for each account, open the microsoft.com/link URL it prints and enter the code"
+echo "     -> once all say 'logged in', press Ctrl+C"
+echo ""
+echo "3) Run it 24/7:"
+echo "     pm2 start src/index.js --name signal-afk"
+echo "     pm2 save"
+echo "     pm2 startup    (then run the line it prints back to you)"
+echo ""
+echo "4) Open the dashboard on your phone:"
+echo "     http://${IP}:${PORT}"
+echo ""

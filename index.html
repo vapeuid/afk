@@ -1,0 +1,56 @@
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+const express = require('express');
+const { Server } = require('socket.io');
+const { createBot } = require('./bot');
+
+const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
+if (!fs.existsSync(CONFIG_PATH)) {
+  console.error('Missing config.json — copy config.example.json to config.json and edit it.');
+  process.exit(1);
+}
+const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+const settings = config.settings || {};
+const accounts = config.accounts || [];
+
+const bots = {};
+const states = {};
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// Password gate on the socket handshake (page itself is static; data needs the password)
+io.use((socket, next) => {
+  if (!settings.dashboardPassword) return next();
+  const pw = socket.handshake.auth && socket.handshake.auth.password;
+  if (pw === settings.dashboardPassword) return next();
+  next(new Error('unauthorized'));
+});
+
+io.on('connection', (socket) => {
+  socket.emit('states', states);
+  socket.on('reconnectBot', (u) => { if (bots[u]) bots[u].reconnect(); });
+  socket.on('stopBot', (u) => { if (bots[u]) bots[u].stop(); });
+  socket.on('startBot', (u) => { if (bots[u]) bots[u].start(); });
+});
+
+// Spawn every account (staggered so auth device-codes print one at a time on first run)
+accounts.forEach((acc, i) => {
+  setTimeout(() => {
+    bots[acc.username] = createBot(acc, settings, (s) => {
+      states[acc.username] = s;
+      io.emit('state', s);
+    });
+    states[acc.username] = bots[acc.username].getState();
+  }, i * 4000);
+});
+
+const port = settings.dashboardPort || 3000;
+server.listen(port, '0.0.0.0', () => {
+  console.log(`\nDashboard:  http://<your-vps-ip>:${port}`);
+  console.log(`Password:   ${settings.dashboardPassword ? '(set in config.json)' : '(none — set dashboardPassword!)'}\n`);
+});
